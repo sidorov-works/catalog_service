@@ -37,7 +37,7 @@ class CatalogService():
             self,
 
             # Параметры поискового сервиса
-            search_service_url: str,
+            search_service_url: Optional[str] = None,
             search_service_api_secret: Optional[str] = None,
             search_service_auth_type: Optional[AuthType] = None,
             search_request_timeout: float = 20.0,
@@ -59,32 +59,36 @@ class CatalogService():
         ):
         self._search_service_url = search_service_url
 
-        # Создаем клиенты для запросов к поисковому сервису:
-        # отдельный клиент для поиска
-        self._search_client = RetryableHTTPClient(
-            base_timeout=search_request_timeout,
-            max_retries=search_max_retries
-        )
-        # и отдельный клиент для уведомлений поискового сервиса об изменениях в каталоге
-        self._notification_client = RetryableHTTPClient(
-            base_timeout=notification_request_timeout,
-            max_retries=notification_max_retries
-        )
-        # Обернем клиенты для поддержки автоматичской аутенификации 
-        # на поисковом сервисе, если требуется
-        if search_service_api_secret and search_service_auth_type:
-            self._search_client = create_signed_client(
-                self._search_client,
-                secret=search_service_api_secret,
-                service_name="catalog-service",
-                auth_type=search_service_auth_type
+        # Создаем клиенты для запросов к поисковому сервису ТОЛЬКО если указан URL
+        if search_service_url:
+            # отдельный клиент для поиска
+            self._search_client = RetryableHTTPClient(
+                base_timeout=search_request_timeout,
+                max_retries=search_max_retries
             )
-            self._notification_client = create_signed_client(
-                self._notification_client,
-                secret=search_service_api_secret,
-                service_name="catalog-service",
-                auth_type=search_service_auth_type
+            # и отдельный клиент для уведомлений поискового сервиса об изменениях в каталоге
+            self._notification_client = RetryableHTTPClient(
+                base_timeout=notification_request_timeout,
+                max_retries=notification_max_retries
             )
+            # Обернем клиенты для поддержки автоматической аутентификации 
+            # на поисковом сервисе, если требуется
+            if search_service_api_secret and search_service_auth_type:
+                self._search_client = create_signed_client(
+                    self._search_client,
+                    secret=search_service_api_secret,
+                    service_name="catalog-service",
+                    auth_type=search_service_auth_type
+                )
+                self._notification_client = create_signed_client(
+                    self._notification_client,
+                    secret=search_service_api_secret,
+                    service_name="catalog-service",
+                    auth_type=search_service_auth_type
+                )
+        else:
+            self._search_client = None
+            self._notification_client = None
 
         # Создаем объект для низкоуровневого взаимодействия с оперативным каталогом CatalogClient, 
         # просто передав ему все параметры, которые имеют к нему отношение
@@ -142,6 +146,14 @@ class CatalogService():
                 "error": Optional[str]         # Описание ошибки или null при успешном поиске
             }
         """
+        # Проверяем, настроен ли поисковый сервис
+        if not self._search_service_url:
+            return {
+                "results": [],
+                "total_found": 0,
+                "error": "Search service is not configured (search_service_url not provided)"
+            }
+        
         try:
             if not query or len(query.strip()) < 2:
                 return {
@@ -246,6 +258,10 @@ class CatalogService():
         Raises:
             Exception: Если произошла общая ошибка при выполнении пакетного запроса
         """
+        # Проверяем, настроен ли поисковый сервис
+        if not self._search_service_url:
+            raise ValueError("Search service is not configured (search_service_url not provided)")
+        
         try:
             if not search_requests:
                 logger.warning("Empty batch search request")
@@ -335,6 +351,11 @@ class CatalogService():
 
     async def notify_catalog_deleted(self, tenant: str):
         """Уведомление сервиса поиска об удалении каталога с повторными попытками"""
+        # Проверяем, настроен ли поисковый сервис
+        if not self._search_service_url:
+            logger.warning(f"Search service not configured, skipping catalog deletion notification for {tenant}")
+            return
+        
         try:
             response = await self._notification_client.post_with_retry(
                 url=f"{self._search_service_url}{EP_NAME_CATALOG_DELETED}/{tenant}",
@@ -350,6 +371,11 @@ class CatalogService():
 
     async def notify_catalog_updated(self, tenant: str) -> Optional[bool]:
         """Уведомление сервиса поиска об обновлении каталога с повторными попытками"""
+        # Проверяем, настроен ли поисковый сервис
+        if not self._search_service_url:
+            logger.warning(f"Search service not configured, skipping catalog update notification for {tenant}")
+            return None
+        
         try:
             response = await self._notification_client.post_with_retry(
                 url=f"{self._search_service_url}{EP_NAME_CATALOG_UPDATED}/{tenant}",
@@ -364,22 +390,7 @@ class CatalogService():
                 f"Search service will continue using OLD catalog data for {tenant}!\n"
                 f"Manual intervention may be required: POST {self._search_service_url}{EP_NAME_CATALOG_UPDATED}/{tenant}"
             )
-
-    # TODO: Нужен ли этот метод кому-либо кроме поискового сервиса ???
-    # async def get_all_search_data(self, tenant: str) -> Dict[str, Dict]:
-    #     """
-    #     Получение данных для поиска в новом формате.
-        
-    #     Returns:
-    #         Словарь где ключи могут быть:
-    #         - Артикулы: данные конкретной конфигурации (type: 'article')
-    #         - Названия товаров: обобщенные данные (type: 'product')
-    #     """
-    #     try:
-    #         return await self._catalog.get_all_search_data(tenant)
-    #     except Exception as e:
-    #         logger.error(f"Error getting search data for {tenant}: {e}")
-    #         return {}
+            return False
 
     async def article_exists(self, article: str, tenant: str) -> bool:
         """Проверка существования артикула"""
@@ -610,6 +621,10 @@ class CatalogService():
     async def close(self):
         """Корректное закрытие всех ресурсов"""
         await self._catalog.close()
-        await self._search_client.close()
-        await self._notification_client.close()
+        
+        if self._search_client:
+            await self._search_client.close()
+        if self._notification_client:
+            await self._notification_client.close()
+            
         logger.info("CatalogService resources closed")
