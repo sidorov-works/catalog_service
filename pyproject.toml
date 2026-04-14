@@ -1,0 +1,22 @@
+[project]
+name = "catalog-service"
+version = "0.1.0"
+description = "Custom class CatalogService for runtime catalog"
+authors = [{name = "Oleg Sidorov", email = "sidorov.works@yandex.ru"}]
+license = {text = "MIT"}
+readme = "readme.md"
+requires-python = ">=3.9"
+dependencies = [
+    "git+https://github.com/sidorov-works/redis_catalog_client.git@v0.1.2",
+    "git+https://github.com/sidorov-works/http_utils.git@v0.1.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
