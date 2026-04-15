@@ -83,3 +83,10 @@ class CatalogConnectionPool(ConnectionPool):
         # Меняем класс на наш (без изменения внутреннего состояния)
         pool.__class__ = cls
         return pool
+    
+    def __init__(self, *args, **kwargs):
+        """
+        Переопределяем __init__, чтобы не вызывать родительский конструктор.
+        Объект уже полностью создан в __new__.
+        """
+        pass
