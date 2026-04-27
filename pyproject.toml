@@ -1,6 +1,6 @@
 [project]
 name = "catalog-service"
-version = "0.1.10"
+version = "0.1.11"
 description = "Custom class CatalogService for runtime catalog"
 authors = [{name = "Oleg Sidorov", email = "sidorov.works@yandex.ru"}]
 license = {text = "MIT"}
