@@ -468,6 +468,10 @@ class CatalogService():
         except Exception as e:
             logger.error(f"Error getting description for product '{product_name}' (tenant: {tenant}): {e}")
             return None
+        
+    async def get_generalized_description(self, articles: List[str], tenant: str) -> Optional[Dict[str, Any]]:
+        """Создает обобщенное описание для произвольного набора артикулов."""
+        return await self._catalog.get_generalized_description_for_articles(articles, tenant)
 
     async def get_prod_descr_str(
             self,

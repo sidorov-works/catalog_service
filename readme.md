@@ -20,7 +20,7 @@
 ## Установка
 
 ```bash
-pip install git+https://github.com/sidorov-works/catalog_service.git@v0.1.13
+pip install git+https://github.com/sidorov-works/catalog_service.git@v0.1.14
 ```
 
 ## Быстрый старт

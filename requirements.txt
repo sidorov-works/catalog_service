@@ -1,5 +1,5 @@
 anyio==4.13.0
-catalog-client @ git+https://github.com/sidorov-works/redis_catalog_client.git@v0.1.5
+catalog-client @ git+https://github.com/sidorov-works/redis_catalog_client.git@v0.1.6
 certifi==2026.2.25
 ecdsa==0.19.2
 h11==0.16.0
