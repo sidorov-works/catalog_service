@@ -119,7 +119,8 @@ class CatalogService():
         query: str, 
         tenant: str, 
         limit: int = 10,
-        normalization_power: float = 1.0
+        normalization_power: float = 1.0,
+        articles_only: bool = False
     ) -> Dict[str, Any]:
         """
         Выполняет поиск товаров по запросу для указанного тенанта.
@@ -128,20 +129,23 @@ class CatalogService():
             query: Текст запроса для поиска
             tenant: Идентификатор тенанта
             limit: Максимальное количество результатов
-            
+            normalization_power: Степень нормализации релевантности
+            articles_only: Если True, то для результатов, найденных по названию,
+                        возвращаются все артикулы товара (by_article всегда True)
+        
         Returns:
             Словарь с результатами поиска:
             {
                 "results": [
                     {
-                        "result": str,         # Артикул (если by_article=True) или название товара (если by_article=False)
+                        "result": str,         # Артикул (всегда при articles_only=True)
                         "relevance_score": float,
-                        "by_article": bool     # True = найдено по артикулу, False = найдено по названию
+                        "by_article": bool     # Всегда True при articles_only=True
                     },
                     ...
                 ],
-                "total_found": int,            # Количество найденных товаров
-                "error": Optional[str]         # Описание ошибки или null при успешном поиске
+                "total_found": int,
+                "error": Optional[str]
             }
         """
         # Проверяем, настроен ли поисковый сервис
@@ -172,9 +176,9 @@ class CatalogService():
                 "query": query,
                 "tenant_id": tenant,
                 "limit": limit,
-                "normalization_power": normalization_power
+                "normalization_power": normalization_power,
+                "articles_only": articles_only
             }
-            
             
             # Выполняем запрос к поисковому сервису
             response = await self._search_client.post_with_retry(
@@ -211,11 +215,13 @@ class CatalogService():
                 "error": f"Search error: {str(e)}"
             }
 
+
     async def search_products_batch(
         self,
         search_requests: List[Dict[str, Any]],
         relevance_threshold: Optional[float] = None,
-        normalization_power: float = 1.0
+        normalization_power: float = 1.0,
+        articles_only: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Выполняет пакетный поиск товаров по нескольким запросам.
@@ -226,6 +232,10 @@ class CatalogService():
                             - query: текст запроса
                             - tenant_id: идентификатор тенанта
                             - limit: (опционально) максимальное количество результатов, по умолчанию 10
+            relevance_threshold: Порог релевантности (опционально)
+            normalization_power: Степень нормализации релевантности
+            articles_only: Если True, то для результатов, найденных по названию,
+                        возвращаются все артикулы товара (by_article всегда True)
         
         Returns:
             Список результатов в том же порядке, что и запросы.
@@ -235,22 +245,21 @@ class CatalogService():
             {
                 "results": [
                     {
-                        "result": str,          # Артикул (если by_article=True) 
-                                            # или название товара (если by_article=False)
+                        "result": str,          # Артикул (всегда при articles_only=True)
                         "relevance_score": float,
-                        "by_article": bool      # True = найдено по артикулу, False = найдено по названию
+                        "by_article": bool      # Всегда True при articles_only=True
                     },
                     ...
                 ],
-                "total_found": int,            # Количество найденных товаров
-                "error": null                  # Отсутствует при успешном поиске
+                "total_found": int,
+                "error": null
             }
             
             Структура результата с ошибкой:
             {
-                "results": [],                 # Пустой список
+                "results": [],
                 "total_found": 0,
-                "error": str                   # Описание ошибки
+                "error": str
             }
         
         Raises:
@@ -269,7 +278,7 @@ class CatalogService():
                 logger.warning(f"Batch size too large: {len(search_requests)}. Truncating to 100")
                 search_requests = search_requests[:100]
             
-            logger.info(f"Executing batch search with {len(search_requests)} requests")
+            logger.info(f"Executing batch search with {len(search_requests)} requests, articles_only={articles_only}")
             
             # Подготавливаем запросы в формате, ожидаемом API
             formatted_requests = []
@@ -298,8 +307,9 @@ class CatalogService():
                 json={
                     "requests": formatted_requests, 
                     "relevance_threshold": relevance_threshold,
-                    "normalization_power": normalization_power
-                    },
+                    "normalization_power": normalization_power,
+                    "articles_only": articles_only
+                },
                 success_statuses={200}
             )
             
@@ -329,15 +339,6 @@ class CatalogService():
         except Exception as e:
             logger.error(f"Ошибка удаления каталога тенанта {tenant}: {e}")
             raise
-
-    # async def close_catalog(self) -> None:
-    #     """Корректное закрытие соединения с Redis"""
-    #     await self._catalog.close()
-
-    # async def close_search_clients(self):
-    #     """Корректное закрытие HTTP-клиентов поискового сервиса"""
-    #     await self._search_client.close()
-    #     await self._notification_client.close()
 
     async def tenant_exists(self, tenant: str) -> bool:
         """Проверка существования тенанта"""
