@@ -398,6 +398,19 @@ class CatalogService():
         except Exception as e:
             logger.error(f"Error checking article existence {article} in {tenant}: {e}")
             return False
+        
+    async def filter_existing_articles(self, articles: List[str], tenant: str) -> List[str]:
+        """
+        Фильтрует список артикулов, оставляя только существующие в каталоге.
+        
+        Args:
+            articles: Список артикулов для проверки
+            tenant: Идентификатор тенанта
+            
+        Returns:
+            Список существующих артикулов (в исходном порядке)
+        """
+        return await self._catalog.filter_existing_articles(articles, tenant)
 
     async def product_name_exists(self, product_name: str, tenant: str) -> bool:
         """Проверка существования названия товара"""
