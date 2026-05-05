@@ -103,6 +103,12 @@ class CatalogService():
             max_execution_retries=catalog_max_retries
         )
 
+    def _search_service_configured(self) -> bool:
+        """Внутренний метод для проверки, сконфигурирован ли сервис поиска"""
+        if self._search_service_url and self._search_client:
+            return True
+        return False
+
     # микрооптимизация: кэшируем URL поискового сервиса
     @lru_cache(maxsize=1)
     def _get_search_url(self) -> str:
@@ -138,9 +144,9 @@ class CatalogService():
             {
                 "results": [
                     {
-                        "result": str,         # Артикул (всегда при articles_only=True)
+                        "result": str,         # Артикул или название товара
                         "relevance_score": float,
-                        "by_article": bool     # Всегда True при articles_only=True
+                        "by_article": bool     # Всегда True при expand_to_articles=True
                     },
                     ...
                 ],
@@ -149,7 +155,7 @@ class CatalogService():
             }
         """
         # Проверяем, настроен ли поисковый сервис
-        if not self._search_service_url:
+        if not self._search_service_configured():
             return {
                 "results": [],
                 "total_found": 0,
@@ -234,8 +240,7 @@ class CatalogService():
                             - limit: (опционально) максимальное количество результатов, по умолчанию 10
             relevance_threshold: Порог релевантности (опционально)
             normalization_power: Степень нормализации релевантности
-            expand_to_articles: Если True, то для результатов, найденных по названию,
-                        возвращаются все артикулы товара (by_article всегда True)
+            expand_to_articles: Если True, то для результатов, найденных по названию, возвращаются все артикулы товара (by_article всегда True)
         
         Returns:
             Список результатов в том же порядке, что и запросы.
@@ -245,9 +250,9 @@ class CatalogService():
             {
                 "results": [
                     {
-                        "result": str,          # Артикул (всегда при articles_only=True)
+                        "result": str,          # Артикул и название товара
                         "relevance_score": float,
-                        "by_article": bool      # Всегда True при articles_only=True
+                        "by_article": bool      # Всегда True при expand_to_articles=True
                     },
                     ...
                 ],
@@ -265,8 +270,8 @@ class CatalogService():
         Raises:
             Exception: Если произошла общая ошибка при выполнении пакетного запроса
         """
-        # Проверяем, настроен ли поисковый сервис
-        if not self._search_service_url:
+        # Проверяем, сконфигурирован ли поисковый сервис
+        if not self._search_service_configured():
             raise ValueError("Search service is not configured (search_service_url not provided)")
         
         try:
@@ -349,9 +354,9 @@ class CatalogService():
             return False
 
     async def notify_catalog_deleted(self, tenant: str):
-        """Уведомление сервиса поиска об удалении каталога с повторными попытками"""
+        """Уведомление сервиса поиска об удалении каталога"""
         # Проверяем, настроен ли поисковый сервис
-        if not self._search_service_url:
+        if not self._search_service_configured():
             logger.warning(f"Search service not configured, skipping catalog deletion notification for {tenant}")
             return
         
@@ -371,7 +376,7 @@ class CatalogService():
     async def notify_catalog_updated(self, tenant: str) -> Optional[bool]:
         """Уведомление сервиса поиска об обновлении каталога с повторными попытками"""
         # Проверяем, настроен ли поисковый сервис
-        if not self._search_service_url:
+        if not self._search_service_configured():
             logger.warning(f"Search service not configured, skipping catalog update notification for {tenant}")
             return None
         
