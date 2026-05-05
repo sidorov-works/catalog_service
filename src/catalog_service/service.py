@@ -120,7 +120,7 @@ class CatalogService():
         tenant: str, 
         limit: int = 10,
         normalization_power: float = 1.0,
-        articles_only: bool = False
+        expand_to_articles: bool = False
     ) -> Dict[str, Any]:
         """
         Выполняет поиск товаров по запросу для указанного тенанта.
@@ -130,7 +130,7 @@ class CatalogService():
             tenant: Идентификатор тенанта
             limit: Максимальное количество результатов
             normalization_power: Степень нормализации релевантности
-            articles_only: Если True, то для результатов, найденных по названию,
+            expand_to_articles: Если True, то для результатов, найденных по названию,
                         возвращаются все артикулы товара (by_article всегда True)
         
         Returns:
@@ -177,7 +177,7 @@ class CatalogService():
                 "tenant_id": tenant,
                 "limit": limit,
                 "normalization_power": normalization_power,
-                "articles_only": articles_only
+                "expand_to_articles": expand_to_articles
             }
             
             # Выполняем запрос к поисковому сервису
@@ -221,7 +221,7 @@ class CatalogService():
         search_requests: List[Dict[str, Any]],
         relevance_threshold: Optional[float] = None,
         normalization_power: float = 1.0,
-        articles_only: bool = False
+        expand_to_articles: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Выполняет пакетный поиск товаров по нескольким запросам.
@@ -234,7 +234,7 @@ class CatalogService():
                             - limit: (опционально) максимальное количество результатов, по умолчанию 10
             relevance_threshold: Порог релевантности (опционально)
             normalization_power: Степень нормализации релевантности
-            articles_only: Если True, то для результатов, найденных по названию,
+            expand_to_articles: Если True, то для результатов, найденных по названию,
                         возвращаются все артикулы товара (by_article всегда True)
         
         Returns:
@@ -278,7 +278,7 @@ class CatalogService():
                 logger.warning(f"Batch size too large: {len(search_requests)}. Truncating to 100")
                 search_requests = search_requests[:100]
             
-            logger.info(f"Executing batch search with {len(search_requests)} requests, articles_only={articles_only}")
+            logger.info(f"Executing batch search with {len(search_requests)} requests, articles_only={expand_to_articles}")
             
             # Подготавливаем запросы в формате, ожидаемом API
             formatted_requests = []
@@ -308,7 +308,7 @@ class CatalogService():
                     "requests": formatted_requests, 
                     "relevance_threshold": relevance_threshold,
                     "normalization_power": normalization_power,
-                    "articles_only": articles_only
+                    "expand_to_articles": expand_to_articles
                 },
                 success_statuses={200}
             )

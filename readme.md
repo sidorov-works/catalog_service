@@ -20,7 +20,7 @@
 ## Установка
 
 ```bash
-pip install git+https://github.com/sidorov-works/catalog_service.git@v0.1.17
+pip install git+https://github.com/sidorov-works/catalog_service.git@v0.1.18
 ```
 
 ## Быстрый старт
@@ -127,11 +127,14 @@ asyncio.run(main())
 | Метод | Описание |
 |-------|----------|
 | `article_exists()` | Проверка существования артикула |
+| `articles_exists()` | Проверка существования нескольких артикулов |
+| `filter_existing_articles()` | Фильтрация списка артикулов (оставляет только существующие) |
 | `get_prod_descr_by_article()` | Получение описания по артикулу |
 | `get_prod_descr_by_product()` | Получение описания по названию |
 | `get_articles_by_product()` | Получение списка артикулов по названию |
 | `get_product_name_by_article()` | Получение названия по артикулу |
 | `get_prod_descr_str()` | Универсальное получение описания (приоритет: article > product) |
+| `get_generalized_description_for_articles()` | Обобщенное описание для произвольного списка артикулов |
 
 ### Уведомления (требуют Product Search Service)
 
@@ -141,6 +144,60 @@ asyncio.run(main())
 | `notify_catalog_deleted()` | Уведомить поисковый сервис об удалении | После удаления каталога | Логирует warning, ничего не делает |
 
 **Важно:** Без вызова `notify_catalog_updated()` поисковый сервис будет использовать устаревшие данные из кэша!
+
+## Параметры поиска
+
+### `search_products()` и `search_products_batch()`
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `query` | Текст для поиска (минимум 2 символа) | обязательный |
+| `tenant` | ID клиента (тенанта) | обязательный |
+| `limit` | Максимум результатов | 10 |
+| `relevance_threshold` | Минимальная релевантность (0.0-1.0) | `None` |
+| `normalization_power` | Смягчение поиска (<1.0) или ужесточение (>1.0) | 1.0 |
+| `expand_to_articles` | Развернуть названия товаров в артикулы | `False` |
+
+#### Параметр `expand_to_articles`
+
+Управляет форматом возвращаемых результатов:
+
+- **`False` (по умолчанию)** — возвращает то, что нашло:
+  - артикулы (если точное совпадение) с `by_article: true`
+  - названия товаров (если совпадение по тексту) с `by_article: false`
+
+- **`True`** — всегда возвращает артикулы:
+  - результаты, найденные по артикулу, остаются как есть
+  - результаты, найденные по названию, заменяются на **все артикулы** этого товара
+  - `by_article` всегда `true`
+
+**Пример с `expand_to_articles=True`:**
+
+```python
+result = await service.search_products(
+    query="ноутбук 1406",
+    tenant="azerty",
+    limit=3,
+    expand_to_articles=True
+)
+```
+
+Если у товара "Ноутбук Azerty AZ-1406" есть артикулы `["120-1406-01", "120-1406-02"]`, ответ будет:
+
+```python
+{
+    "results": [
+        {"result": "120-1406-01", "relevance_score": 0.69, "by_article": True},
+        {"result": "120-1406-02", "relevance_score": 0.69, "by_article": True}
+    ],
+    "total_found": 2,
+    "error": None
+}
+```
+
+**Когда использовать:**
+- Для поиска упомянутых товаров в диалоге — сразу получаешь артикулы для дальнейшего обобщения
+- Для верификации товара по названию — нужно знать все артикулы, а не один
 
 ## Конфигурация
 
@@ -245,25 +302,26 @@ async def update_and_search():
         # 2. Уведомляем поисковый сервис
         await service.notify_catalog_updated("azerty")
         
-        # 3. Ищем товары
+        # 3. Ищем товары с разворачиванием в артикулы
         results = await service.search_products(
             query="ноутбук 1406",
-            tenant="azerty"
+            tenant="azerty",
+            expand_to_articles=True  # получаем сразу артикулы
         )
         
-        # 4. Получаем описание для каждого результата
+        # 4. Получаем описание для каждого результата (теперь все by_article=True)
         for item in results["results"]:
-            if item["by_article"]:
-                desc = await service.get_prod_descr_by_article(
-                    item["result"], 
-                    "azerty"
-                )
-            else:
-                desc = await service.get_prod_descr_by_product(
-                    item["result"], 
-                    "azerty"
-                )
+            desc = await service.get_prod_descr_by_article(
+                item["result"], 
+                "azerty"
+            )
             print(f"{item['result']}: {desc}")
+        
+        # 5. Обобщенное описание для нескольких артикулов
+        generalized = await service.get_generalized_description_for_articles(
+            articles=["120-0550", "120-0551", "120-0552"],
+            tenant="azerty"
+        )
 ```
 
 ## Форматирование описаний
@@ -298,6 +356,22 @@ async def update_and_search():
 - 120-0551:
   * оперативная память: 32GB
   * SSD: 1TB
+```
+
+### Для произвольного набора артикулов (через `get_generalized_description_for_articles`):
+```
+Модель: None (разные наименования)
+Категория: Ноутбуки
+Артикулы: 120-0550, 130-0789
+
+Общие характеристики:
+- процессор: Intel Core i5
+
+Различия по конфигурациям:
+- 120-0550:
+  * объем памяти: 16GB
+- 130-0789:
+  * объем памяти: 8GB
 ```
 
 ## Лицензия
