@@ -9,22 +9,13 @@ from catalog_client import CatalogClient
 from http_utils import RetryableHTTPClient, create_signed_client, AuthType
 from functools import lru_cache
 from .connection_pool import CatalogConnectionPool
+from .models import ProductDescription
 
 import logging
 logger = logging.getLogger(__name__)
 
-# Имена полей в структурах (словарях), 
-# используемых в catalog_client для информации о товарах из каталога
-from catalog_client import (
-    COMMON_CHARACTERISTICS_FIELD,
-    DIFFERENT_CHARACTERISTICS_FIELD,
-    ARTICLES_FIELD,
-    CATEGORY_FIELD,
-    NAME_FIELD,
-    CHARACTERISTICS_FIELD
-)
 
-# Константы для названий эндпойнтов поискового сервиса
+# Эндпойнты поискового сервиса
 EP_NAME_SEARCH = "/search"
 EP_NAME_SEARCH_BATCH = "/search_batch"
 EP_NAME_CATALOG_DELETED = "/catalog_deleted"
@@ -425,15 +416,15 @@ class CatalogService():
             logger.error(f"Error checking product name existence {product_name} in {tenant}: {e}")
             return False
 
-    async def get_prod_descr_by_article(self, article: str, tenant: str) -> Optional[str]:
+    async def get_prod_descr_by_article(self, article: str, tenant: str) -> Optional[ProductDescription]:
         """Получение описания товара по артикулу"""
-        if not article:
+        if not (article and tenant):
             return None
         try:
             product_data = await self._catalog.get_by_article(article, tenant)
             if not product_data:
                 return None
-            return self._format_product_description(product_data)
+            return ProductDescription.model_validate(product_data)
         except Exception as e:
             logger.error(f"Error getting product by article {article}: {e}")
             return None
@@ -475,7 +466,7 @@ class CatalogService():
             logger.error(f"Error getting product name for article {article} (tenant: {tenant}): {e}")
             return None
 
-    async def get_prod_descr_by_product(self, product_name: str, tenant: str) -> Optional[str]:
+    async def get_prod_descr_by_product_name(self, product_name: str, tenant: str) -> Optional[ProductDescription]:
         """Получение описания товара по названию"""
         if not (product_name and tenant):
             return None
@@ -483,51 +474,20 @@ class CatalogService():
             product_data = await self._catalog.get_by_product(product_name, tenant)
             if not product_data:
                 return None
-            return self._format_product_description(product_data)
+            return ProductDescription.model_validate(product_data)
         except Exception as e:
-            logger.error(f"Error getting description for product '{product_name}' (tenant: {tenant}): {e}")
+            logger.error(f"Error getting product by name {product_name}: {e}")
             return None
         
-    async def get_generalized_description(self, articles: List[str], tenant: str) -> Optional[Dict[str, Any]]:
+    async def get_generalized_description_for_articles(self, articles: List[str], tenant: str) -> Optional[ProductDescription]:
         """Создает обобщенное описание для произвольного набора артикулов."""
-        return await self._catalog.get_generalized_description_for_articles(articles, tenant)
-
-    async def get_prod_descr_str(
-            self,
-            product: Optional[str] = None, 
-            article: Optional[str] = None,
-            tenant: str = ""
-        ) -> Optional[str]:
-        """
-        Универсальная функция для получения описания товара.
-        Приоритет: article > product
-        """
-        try:
-            if not tenant:
-                logger.error("Tenant not specified")
-                return None
-            
-            # Случай 1: Есть артикул
-            if article:
-                article_desc = await self.get_prod_descr_by_article(article, tenant)
-                if article_desc:
-                    # Проверка конфликта
-                    if product:
-                        product_desc = await self.get_prod_descr_by_product(product, tenant)
-                        if product_desc and article_desc != product_desc:
-                            logger.warning(
-                                f"Conflict detected: article={article}, product={product}, tenant={tenant}"
-                            )
-                    return article_desc
-                logger.warning(f"Article {article} not found, trying by product name")
-            
-            # Случай 2: Есть только название или артикул не найден
-            if product:
-                return await self.get_prod_descr_by_product(product, tenant)
-            
+        description_dict = await self._catalog.get_generalized_description_for_articles(articles, tenant)
+        if not description_dict:
             return None
+        try:
+            return ProductDescription.model_validate(description_dict)
         except Exception as e:
-            logger.error(f"Error in get_prod_descr_str: {e}")
+            logger.error(f"Invalid product description data: {e}")
             return None
 
     async def update_catalog_data(
@@ -549,65 +509,55 @@ class CatalogService():
             logger.error(f"Error updating catalog: {e}")
             raise
 
-    def _format_product_description(self, product_data: Dict) -> str:
-        """Форматирование данных товара в строку для промпта"""
+    def format_product_description(self, product_data: ProductDescription) -> str:
+        """Единая универсальная функция форматирования данных товара в строку"""
         try:
-            if COMMON_CHARACTERISTICS_FIELD in product_data:
+            if product_data.common_characteristics or product_data.different_characteristics:
                 return self._format_generalized_description(product_data)
             else:
                 return self._format_single_product_description(product_data)
         except Exception as e:
             logger.error(f"Error formatting product description: {e}")
-            return f"Модель: {product_data.get(NAME_FIELD, 'Unknown')}"
+            return f"Модель: {product_data.name or 'Unknown'}"
 
-    def _format_single_product_description(self, product_data: Dict) -> str:
+    def _format_single_product_description(self, product_data: ProductDescription) -> str:
         """Форматирование описания одиночного товара"""
         lines = []
         
-        name = product_data.get(NAME_FIELD, '')
-        category = product_data.get(CATEGORY_FIELD, '')
+        if product_data.name:
+            lines.append(f"Модель: {product_data.name}")
+        if product_data.category:
+            lines.append(f"Категория: {product_data.category}")
         
-        if name:
-            lines.append(f"Модель: {name}")
-        if category:
-            lines.append(f"Категория: {category}")
-        
-        characteristics = product_data.get(CHARACTERISTICS_FIELD, {})
-        if characteristics:
+        if product_data.characteristics:
             lines.append("\nХарактеристики:")
-            for key, value in sorted(characteristics.items()):
+            for key, value in sorted(product_data.characteristics.items()):
                 if value:
                     lines.append(f"- {key}: {value}")
         
         return "\n".join(lines)
 
-    def _format_generalized_description(self, product_data: Dict) -> str:
+    def _format_generalized_description(self, product_data: ProductDescription) -> str:
         """Форматирование обобщенного описания"""
         lines = []
         
-        name = product_data.get(NAME_FIELD, '')
-        category = product_data.get(CATEGORY_FIELD, '')
-        articles = product_data.get(ARTICLES_FIELD, [])
-        common_chars = product_data.get(COMMON_CHARACTERISTICS_FIELD, {})
-        diff_chars = product_data.get(DIFFERENT_CHARACTERISTICS_FIELD, {})
+        if product_data.name:
+            lines.append(f"Модель: {product_data.name}")
+        if product_data.category:
+            lines.append(f"Категория: {product_data.category}")
+        if product_data.articles:
+            lines.append(f"Артикулы: {', '.join(product_data.articles)}")
         
-        if name:
-            lines.append(f"Модель: {name}")
-        if category:
-            lines.append(f"Категория: {category}")
-        if articles:
-            lines.append(f"Артикулы: {', '.join(articles)}")
-        
-        if common_chars:
+        if product_data.common_characteristics:
             lines.append("\nОбщие характеристики:")
-            for key, value in sorted(common_chars.items()):
+            for key, value in sorted(product_data.common_characteristics.items()):
                 if value:
                     lines.append(f"- {key}: {value}")
         
-        if diff_chars:
+        if product_data.different_characteristics:
             lines.append("\nРазличия по конфигурациям:")
-            article_data = {}
-            for char_name, values_by_article in diff_chars.items():
+            article_data: Dict[str, List[str]] = {}
+            for char_name, values_by_article in product_data.different_characteristics.items():
                 for article, value in values_by_article.items():
                     if article not in article_data:
                         article_data[article] = []
